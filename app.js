@@ -389,7 +389,7 @@ const App = {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': 'Bearer MiClaveSecreta2026'
+                    'Authorization': 'Bearer Casalimpia.SPN*2026'
                 },
                 body: JSON.stringify({
                     telefono: this.turnoActivoTelefono,
@@ -735,7 +735,7 @@ const App = {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': 'Bearer MiClaveSecreta2026' 
+                    'Authorization': 'Bearer Casalimpia.SPN*2026' 
                 },
                 body: JSON.stringify({
                     nombre: nuevoNombre,
@@ -779,7 +779,7 @@ const App = {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': 'Bearer MiClaveSecreta2026'
+                    'Authorization': 'Bearer Casalimpia.SPN*2026'
                 },
                 body: JSON.stringify({
                     accion: 'resetear',
@@ -807,7 +807,7 @@ const App = {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': 'Bearer MiClaveSecreta2026'
+                    'Authorization': 'Bearer Casalimpia.SPN*2026'
                 },
                 body: JSON.stringify({
                     accion: 'eliminar',
