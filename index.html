@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SaberBot - Centro de Comando</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700&family=Roboto:wght@400;500;700&display=swap');
+        body { font-family: 'Roboto', sans-serif; }
+        .font-outfit { font-family: 'Outfit', sans-serif; }
+        .bg-gradient-casalimpia { background: linear-gradient(90deg, #0085CA 0%, #8DC63F 100%); }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-gray-100 h-screen overflow-hidden text-gray-800 flex flex-col md:flex-row">
+
+    <!-- PANTALLA DE LOGIN -->
+    <div id="login-view" class="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-50 flex items-center justify-center p-4 transition-opacity duration-500">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-[400px] overflow-hidden">
+            <div class="bg-gradient-casalimpia p-6 text-center">
+                <img src="https://empresas.casalimpia.com/wp-content/uploads/2024/08/logo-casa-limpia.png" alt="Logo" class="h-10 mx-auto filter brightness-0 invert">
+                <h2 class="text-white font-outfit font-bold text-xl mt-3">Acceso Centro de Comando</h2>
+            </div>
+            <div class="p-8">
+                <form id="login-form" class="flex flex-col gap-4">
+                    <div class="text-left">
+                        <label class="text-xs font-bold text-slate-500 uppercase tracking-wide">Usuario</label>
+                        <input type="text" id="login-user" class="w-full mt-1 border border-slate-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[#0085CA] outline-none transition-all" placeholder="Ingresa tu usuario" required>
+                    </div>
+                    <div class="text-left">
+                        <label class="text-xs font-bold text-slate-500 uppercase tracking-wide">Contraseña</label>
+                        <input type="password" id="login-pass" class="w-full mt-1 border border-slate-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[#0085CA] outline-none transition-all" placeholder="••••••••" required>
+                    </div>
+                    <div class="text-center mt-1">
+                        <a href="#" class="text-xs text-[#0085CA] hover:underline font-bold">¿Olvidaste tu contraseña?</a>
+                    </div>
+                    <button type="submit" id="btn-login" class="w-full bg-gradient-casalimpia text-white font-bold py-3 rounded-lg shadow-md hover:shadow-lg transition-all mt-2 text-sm tracking-wide">INGRESAR</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- APLICACIÓN PRINCIPAL -->
+    <div id="app-view" class="hidden w-full h-full flex-col md:flex-row relative">
+        
+        <!-- CABECERA MÓVIL -->
+        <div class="md:hidden bg-gradient-casalimpia text-white h-14 flex items-center justify-between px-4 z-20 shadow-md">
+            <button onclick="toggleMenu()" class="text-2xl p-2"><i class="fas fa-bars"></i></button>
+            <span class="font-outfit font-bold tracking-wide">SaberBot</span>
+            <div class="w-8"></div>
+        </div>
+
+        <!-- BARRA LATERAL -->
+        <div id="sidebar-overlay" onclick="toggleMenu()" class="fixed inset-0 bg-black bg-opacity-50 z-30 hidden md:hidden"></div>
+        <aside id="sidebar" class="fixed md:static inset-y-0 left-0 transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-in-out w-64 bg-[#111827] text-white flex flex-col justify-between shadow-2xl md:shadow-lg z-40">
+            <div>
+                <div class="bg-white py-8 px-4 flex flex-col items-center justify-center border-b border-gray-700 relative shadow-sm">
+                    <button onclick="toggleMenu()" class="absolute top-2 right-4 md:hidden text-gray-400 text-xl"><i class="fas fa-times"></i></button>
+                    <div class="flex items-center space-x-3 w-full justify-center">
+                        <img src="https://empresas.casalimpia.com/wp-content/uploads/2024/08/logo-casa-limpia.png" alt="CasaLimpia" class="h-8 object-contain">
+                        <div class="w-[1px] h-8 bg-slate-300"></div>
+                        <div class="flex items-baseline font-outfit text-3xl tracking-tight">
+                            <span class="text-[#8DC63F] font-bold">Saber</span><span class="text-[#0085CA] font-bold">Bot</span>
+                        </div>
+                    </div>
+                    <div class="text-[11px] text-slate-500 uppercase tracking-[0.3em] font-medium mt-5 text-center w-full font-outfit">Supernumerarios</div>
+                </div>
+
+                <div class="p-6 text-center border-b border-gray-800">
+                    <h3 id="user-name-display" class="font-outfit font-bold text-xl uppercase text-white">...</h3>
+                    <p id="user-role-display" class="text-xs text-[#8DC63F] font-bold uppercase tracking-widest mt-1.5">...</p>
+                </div>
+                
+                <nav class="mt-2 space-y-1" id="main-nav">
+                    <a href="#" data-target="view-dashboard" class="nav-link flex items-center px-6 py-4 hover:bg-slate-800 transition text-slate-300 text-sm font-medium"><i class="fas fa-chart-pie w-8 text-lg"></i> Dashboard</a>
+                    <a href="#" data-target="view-operacion" class="nav-link flex items-center px-6 py-4 bg-slate-800 border-l-4 border-[#8DC63F] transition text-white text-sm font-bold"><i class="fas fa-comments w-8 text-[#8DC63F] text-lg"></i> Bolsa y Chat</a>
+                    <a href="#" data-target="view-usuarios" id="menu-usuarios" class="nav-link flex items-center px-6 py-4 hover:bg-slate-800 transition text-slate-300 text-sm font-medium"><i class="fas fa-users-cog w-8 text-lg"></i> Usuarios <i class="fas fa-lock ml-2 text-[10px] text-slate-500"></i></a>
+                </nav>
+            </div>
+            <div class="p-4 border-t border-slate-800">
+                <button id="btn-logout" class="w-full text-left px-4 py-3 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition font-medium text-sm flex items-center"><i class="fas fa-sign-out-alt w-6"></i> Cerrar Sesión</button>
+            </div>
+        </aside>
+
+        <!-- PANTALLAS -->
+        <main class="flex-1 relative bg-slate-100 overflow-hidden h-full">
+            <div id="view-dashboard" class="hidden absolute inset-0 overflow-y-auto p-6">
+                <h2 class="text-2xl font-bold text-slate-800 mb-6 font-outfit">Dashboard Operativo</h2>
+            </div>
+
+            <!-- OPERACIÓN -->
+            <div id="view-operacion" class="flex absolute inset-0 w-full h-full flex-col md:flex-row">
+                
+                <!-- COLUMNA IZQUIERDA -->
+                <div id="section-lista" class="w-full md:w-1/3 lg:w-[350px] bg-white border-r flex flex-col h-full shadow-md z-10 shrink-0">
+                    <div class="p-4 border-b bg-gray-50">
+                        <div class="relative mb-3">
+                            <input type="text" placeholder="Buscar cédula o nombre..." class="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#0085CA] transition-all">
+                            <i class="fas fa-search absolute left-4 top-3 text-slate-400"></i>
+                        </div>
+                        <div class="flex space-x-2 text-sm font-bold">
+                            <button class="flex-1 bg-gradient-casalimpia text-white shadow py-2.5 rounded-lg">Bolsa Común</button>
+                            <button class="flex-1 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 py-2.5 rounded-lg transition-colors">Mis Turnos</button>
+                        </div>
+                        
+                        <!-- FILTROS DE ESTADO (Grid 2x2 + 1 Historial) -->
+                        <div class="grid grid-cols-2 gap-2 mt-4" id="filtros-estado">
+                            <button data-filtro="pendiente_respuesta" class="filtro-btn flex justify-between items-center px-3 py-2 bg-[#0085CA] text-white border border-[#0085CA] text-xs font-bold rounded-lg transition-all">
+                                Pendientes <span id="count-pendientes" class="bg-white text-[#0085CA] px-2 py-0.5 rounded-md text-[10px]">0</span>
+                            </button>
+                            <button data-filtro="consulta" class="filtro-btn flex justify-between items-center px-3 py-2 bg-white text-slate-500 border border-slate-200 text-xs font-bold rounded-lg hover:bg-slate-50 transition-all">
+                                Consultas <span id="count-consulta" class="bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md text-[10px]">0</span>
+                            </button>
+                            <button data-filtro="si" class="filtro-btn flex justify-between items-center px-3 py-2 bg-white text-slate-500 border border-slate-200 text-xs font-bold rounded-lg hover:bg-slate-50 transition-all">
+                                Confirmados <span id="count-si" class="bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md text-[10px]">0</span>
+                            </button>
+                            <button data-filtro="no" class="filtro-btn flex justify-between items-center px-3 py-2 bg-white text-slate-500 border border-slate-200 text-xs font-bold rounded-lg hover:bg-slate-50 transition-all">
+                                Cancelados <span id="count-no" class="bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md text-[10px]">0</span>
+                            </button>
+                            <!-- HISTORIAL -->
+                            <button data-filtro="cerrado" class="col-span-2 filtro-btn flex justify-center items-center px-3 py-2 mt-1 bg-white text-slate-500 border border-slate-200 text-xs font-bold rounded-lg hover:bg-slate-50 transition-all">
+                                <i class="fas fa-history mr-2"></i> Historial de Cerrados
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex-1 overflow-y-auto" id="lista-turnos-container"></div>
+                </div>
+
+                <!-- COLUMNA DERECHA (CHAT) -->
+                <div id="section-chat" class="hidden md:flex flex-1 flex-col h-full bg-[#f8f9fa] absolute md:relative w-full z-20">
+                    <div id="chat-vacio" class="flex-1 flex flex-col items-center justify-center text-slate-400 p-6">
+                        <i class="fas fa-inbox text-6xl mb-4 opacity-50"></i>
+                        <p class="text-lg font-medium">Selecciona un turno de la lista</p>
+                    </div>
+
+                    <div id="chat-activo" class="hidden flex-col h-full w-full">
+                        <div class="h-16 bg-white border-b flex items-center justify-between px-4 md:px-6 shadow-sm shrink-0 relative z-20">
+                            <div class="flex items-center">
+                                <button onclick="cerrarChatMovil()" class="md:hidden mr-3 text-slate-500 hover:text-slate-700 p-2"><i class="fas fa-arrow-left text-lg"></i></button>
+                                <div>
+                                    <h2 id="chat-header-nombre" class="font-bold text-base md:text-lg text-slate-800 leading-tight">...</h2>
+                                    <p id="chat-header-cedula" class="text-[11px] md:text-sm text-slate-500 font-medium">...</p>
+                                </div>
+                            </div>
+                            <button id="btn-cerrar-chat" class="bg-rose-50 text-rose-600 border border-rose-200 px-4 py-1.5 rounded-lg hover:bg-rose-100 transition font-bold text-sm flex items-center">
+                                <i class="fas fa-times-circle mr-1.5"></i> Cerrar Chat
+                            </button>
+                        </div>
+
+                        <div class="bg-white mx-3 my-2 md:mx-6 md:my-4 p-4 rounded-xl shadow-sm border border-slate-200 text-xs md:text-sm shrink-0 relative z-20">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4">
+                                <div><span class="text-slate-500 font-medium mr-1">Cliente:</span> <span id="chat-info-cliente" class="font-bold text-slate-700">...</span></div>
+                                <div><span class="text-slate-500 font-medium mr-1">Horario:</span> <span id="chat-info-horario" class="font-bold text-slate-700">...</span></div>
+                            </div>
+                        </div>
+
+                        <div class="flex-1 overflow-y-auto p-4 md:px-6 md:pb-6 space-y-4 relative">
+                            <div class="absolute inset-0 z-0 overflow-hidden pointer-events-none flex items-center justify-center">
+                                <img src="logo.png" alt="SaberBot Watermark" class="w-full h-full object-cover opacity-[0.05]">
+                            </div>
+                            <div id="contenedor-mensajes" class="relative z-10 w-full flex flex-col space-y-3">
+                                <!-- Mensajes dinámicos aquí -->
+                            </div>
+                        </div>
+
+                        <div class="bg-white border-t p-3 md:p-4 shrink-0 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] relative z-20">
+                            
+                            <!-- AVISO DE META (Solo Lectura) -->
+                            <div id="aviso-meta" class="hidden text-center text-xs text-slate-500 bg-slate-50 rounded-lg p-3 font-medium border border-slate-200">
+                                <i class="fas fa-lock mr-1"></i> Envío de mensajes deshabilitado. El usuario no ha iniciado interacción (Política de Meta).
+                            </div>
+
+                            <!-- ACCIONES MANUALES (Solo Pendientes) -->
+                            <div id="panel-acciones-manuales" class="flex space-x-2 mb-3 mt-2">
+                                <button id="btn-confirmar" class="bg-[#10b981] text-white p-3 md:px-4 md:py-2.5 rounded-lg font-bold hover:bg-[#059669] text-xs md:text-sm flex-1 flex justify-center items-center transition-colors"><i class="fas fa-check md:mr-2"></i><span class="hidden md:inline">CONFIRMAR</span></button>
+                                <button id="btn-rechazar" class="bg-[#f43f5e] text-white p-3 md:px-4 md:py-2.5 rounded-lg font-bold hover:bg-[#e11d48] text-xs md:text-sm flex-1 flex justify-center items-center transition-colors"><i class="fas fa-times md:mr-2"></i><span class="hidden md:inline">RECHAZAR</span></button>
+                                <button class="bg-[#1e293b] text-white p-3 md:px-6 md:py-2.5 rounded-lg font-bold hover:bg-slate-900 transition-colors flex justify-center items-center"><i class="fas fa-phone-alt"></i></button>
+                            </div>
+
+                            <!-- ÁREA DE ESCRITURA (Consultas, Si, No) -->
+                            <div id="area-escritura" class="flex items-center space-x-2 mt-2">
+                                <input type="text" id="chat-input" autocomplete="off" placeholder="Escribe un mensaje de WhatsApp..." class="flex-1 bg-slate-100 border border-slate-200 focus:border-[#8DC63F] focus:bg-white rounded-full px-5 py-3 text-sm outline-none transition-all">
+                                <button id="btn-enviar-msg" class="bg-[#8DC63F] text-white rounded-full min-w-[48px] h-[48px] flex items-center justify-center hover:bg-[#7AB030] shadow-md transition-transform hover:scale-105"><i class="fas fa-paper-plane"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISTA USUARIOS -->
+            <div id="view-usuarios" class="hidden absolute inset-0 overflow-y-auto p-6">
+                <!-- Se llenará luego -->
+            </div>
+        </main>
+    </div>
+
+    <!-- SCRIPTS MÓVIL Y MENÚ -->
+    <script>
+        function cerrarChatMovil() {
+            document.getElementById('section-chat').classList.add('hidden');
+            document.getElementById('section-chat').classList.remove('flex');
+            document.getElementById('section-lista').classList.remove('hidden');
+        }
+        function toggleMenu() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            if (sidebar.classList.contains('-translate-x-full')) {
+                sidebar.classList.remove('-translate-x-full');
+                overlay.classList.remove('hidden');
+            } else {
+                sidebar.classList.add('-translate-x-full');
+                overlay.classList.add('hidden');
+            }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const user = document.getElementById('login-user').value.trim();
+            const pass = document.getElementById('login-pass').value.trim();
+            const btn = document.getElementById('btn-login');
+
+            const textoOriginal = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> VERIFICANDO...';
+            btn.disabled = true;
+
+            try {
+                const respuesta = await API.login(user, pass);
+                if (respuesta.success) {
+                    App.verificarSesion();
+                } else {
+                    alert("Acceso denegado:\n" + respuesta.error);
+                }
+            } catch (err) {
+                alert("Error crítico:\n" + err.message);
+            } finally {
+                btn.innerHTML = textoOriginal;
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
