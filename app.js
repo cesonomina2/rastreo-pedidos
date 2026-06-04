@@ -6,6 +6,7 @@ const App = {
     estadoFiltroActivo: 'pendiente_respuesta',
     turnoActivoId: null,
     turnoActivoTelefono: null, 
+    diccionarioUsuarios: {},
 
     init() {
         this.verificarSesion();
@@ -40,9 +41,25 @@ const App = {
                 document.getElementById('tab-en-atencion').classList.add('flex-1');
             }
 
+            this.cargarDiccionarioUsuarios();
             this.cargarBolsaComun();
             this.iniciarMotorTiempoReal();
-            this.controlarAlertasVisuales(); // Activamos revisión de alertas al iniciar
+            this.controlarAlertasVisuales();
+        }
+    },
+
+    async cargarDiccionarioUsuarios() {
+        try {
+            const { data, error } = await supabaseClient
+                .from('usuarios_plataforma')
+                .select('cedula, nombre_completo');
+            if (error) throw error;
+            
+            data.forEach(user => {
+                this.diccionarioUsuarios[user.cedula] = user.nombre_completo;
+            });
+        } catch (err) {
+            console.error("Error cargando diccionario:", err);
         }
     },
 
@@ -51,11 +68,9 @@ const App = {
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mensajes_chat' }, payload => {
                 const nuevoMensaje = payload.new;
                 
-                // Si el mensaje es del chat que estamos viendo, lo pintamos
                 if(this.turnoActivoId === nuevoMensaje.requerimiento_id) {
                     this.pintarBurbuja(nuevoMensaje.tipo, nuevoMensaje.autor, nuevoMensaje.texto, nuevoMensaje.hora_registro);
                 } 
-                // Alerta visual a nivel de tarjeta (titila)
                 else if (nuevoMensaje.tipo === 'entrada') {
                     const tarjeta = document.querySelector(`div[data-id="${nuevoMensaje.requerimiento_id}"]`);
                     if (tarjeta) {
@@ -69,7 +84,7 @@ const App = {
             })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'requerimientos_turnos' }, payload => {
                 this.actualizarContadores();
-                this.controlarAlertasVisuales(); // Actualizar alertas si un turno cambia de estado
+                this.controlarAlertasVisuales();
                 this.cargarBolsaComun(true); 
             })
             .subscribe();
@@ -99,7 +114,7 @@ const App = {
                     
                     if(targetId === 'view-usuarios') {
                         App.cargarUsuarios();
-                        App.cargarConfiguracionTiempo(); // Cargamos config al entrar a la pestaña
+                        App.cargarConfiguracionTiempo();
                     }
                 }
 
@@ -125,8 +140,6 @@ const App = {
         if(btnLogout) {
             btnLogout.addEventListener('click', async () => {
                 btnLogout.innerHTML = '<i class="fas fa-spinner fa-spin w-6"></i> Saliendo...';
-                // Asumiendo que usas supabaseClient.auth.signOut() si tienes Auth activado en front, 
-                // o simplemente limpias el localStorage
                 localStorage.removeItem('saberbot_user');
                 window.location.reload();
             });
@@ -143,7 +156,6 @@ const App = {
         [btnComun, btnMis, btnAdmin].forEach(b => {
             if(b) {
                 b.className = b.className.replace(/bg-gradient-casalimpia|bg-\[#8DC63F\]|bg-\[#0085CA\]|bg-amber-500|text-white|shadow/g, '');
-                // No tocamos los estilos del borde rojo si están activos por las alertas
                 if (!b.classList.contains('border-rose-500')) {
                     b.classList.add('bg-white', 'border', 'border-slate-200', 'text-slate-500');
                 } else {
@@ -203,11 +215,19 @@ const App = {
 
     async actualizarContadores() {
         try {
-            const { data, error } = await supabaseClient
-                .from('requerimientos_turnos')
-                .select('estado_operativo')
-                .is('gestionado_por', null); 
+            // Empezamos la consulta base
+            let query = supabaseClient.from('requerimientos_turnos').select('estado_operativo');
 
+            // Hacemos que el conteo sea inteligente dependiendo de la pestaña
+            if (this.vistaAsignacionActiva === 'comun') {
+                query = query.is('gestionado_por', null);
+            } else if (this.vistaAsignacionActiva === 'mis_turnos') {
+                query = query.eq('gestionado_por', this.usuarioActual.cedula);
+            } else if (this.vistaAsignacionActiva === 'en_atencion') {
+                query = query.not('gestionado_por', 'is', null);
+            }
+
+            const { data, error } = await query;
             if (error) throw error;
 
             const counts = { pendiente_respuesta: 0, consulta: 0, si: 0, no: 0 };
@@ -245,7 +265,7 @@ const App = {
                             .update({ 
                                 estado_operativo: 'cerrado', 
                                 gestionado_por: this.usuarioActual.cedula,
-                                motivo_cierre: 'gestionado' // Marca de fuego
+                                motivo_cierre: 'gestionado' 
                             })
                             .eq('id', this.turnoActivoId);
                         if (error) throw error;
@@ -302,7 +322,6 @@ const App = {
         if(!confirm("Esta acción cerrará el turno inmediatamente. ¿Deseas continuar?")) return;
 
         try {
-            // Dejar la trazabilidad
             await supabaseClient.from('mensajes_chat').insert([{
                 requerimiento_id: this.turnoActivoId,
                 tipo: 'sistema',
@@ -310,13 +329,12 @@ const App = {
                 texto: mensajeSistema
             }]);
 
-            // Actualizar turno
             const { error } = await supabaseClient
                 .from('requerimientos_turnos')
                 .update({ 
                     estado_operativo: 'cerrado', 
                     gestionado_por: this.usuarioActual.cedula,
-                    motivo_cierre: estadoDeseado // Para saber si se cerró por confirmar o rechazar
+                    motivo_cierre: estadoDeseado 
                 })
                 .eq('id', this.turnoActivoId);
 
@@ -349,7 +367,6 @@ const App = {
                 texto: '📞 El coordinador intentó contactar al operario mediante llamada telefónica.'
             }]);
             
-            // Refrescamos los mensajes para ver la burbuja
             this.cargarMensajes(this.turnoActivoId);
             
         } catch (err) {
@@ -456,7 +473,8 @@ const App = {
 
                 let badgeGestor = '';
                 if (this.vistaAsignacionActiva === 'en_atencion' && turno.gestionado_por) {
-                    badgeGestor = `<div class="absolute top-2 right-2 bg-amber-100 text-amber-700 text-[9px] px-2 py-0.5 rounded shadow-sm font-bold"><i class="fas fa-headset mr-1"></i> CC: ${turno.gestionado_por}</div>`;
+                    const nombreGestor = this.diccionarioUsuarios[turno.gestionado_por] || turno.gestionado_por;
+                    badgeGestor = `<div class="absolute top-2 right-2 bg-amber-100 text-amber-700 text-[9px] px-2 py-0.5 rounded shadow-sm font-bold truncate max-w-[130px]" title="${nombreGestor}"><i class="fas fa-headset mr-1"></i> ${nombreGestor}</div>`;
                 }
 
                 tarjeta.innerHTML = `
@@ -472,7 +490,6 @@ const App = {
                 `;
 
                 tarjeta.addEventListener('click', () => {
-                    // Limpiar alertas visuales de tarjeta individual al verla
                     tarjeta.classList.remove('animate-pulse', 'border-rose-500', 'bg-rose-50', 'border-l-8');
                     const titulo = tarjeta.querySelector('h4');
                     if (titulo) titulo.innerHTML = titulo.innerHTML.replace('<i class="fas fa-bell text-rose-500 mr-1"></i> ', '');
@@ -751,6 +768,7 @@ const App = {
             
             this.cerrarModalUsuario();
             this.cargarUsuarios(); 
+            this.cargarDiccionarioUsuarios(); // Refrescar nombres
             alert("✅ Usuario creado correctamente.");
             
         } catch (err) {
@@ -818,6 +836,7 @@ const App = {
             if (!respuesta.ok) throw new Error("Rechazado por el servidor");
             
             this.cargarUsuarios(); 
+            this.cargarDiccionarioUsuarios(); // Refrescar nombres
             alert(`✅ Usuario ${nombre} eliminado del sistema.`);
             
         } catch (err) {
@@ -834,7 +853,6 @@ const App = {
         if (!this.usuarioActual) return;
         
         try {
-            // Contamos cuántos turnos activos tiene asignados ESTE coordinador
             const { count, error } = await supabaseClient
                 .from('requerimientos_turnos')
                 .select('*', { count: 'exact', head: true })
@@ -846,12 +864,9 @@ const App = {
             const banner = document.getElementById('banner-alerta-turnos');
             const badge = document.getElementById('badge-mis-turnos');
             const tabMisTurnos = document.getElementById('tab-mis-turnos');
-            const listaSection = document.getElementById('section-lista');
             
             if (count > 0) {
-                // ENCENDER RUIDO VISUAL
                 if (banner) banner.classList.remove('hidden');
-                if (listaSection) listaSection.classList.add('pt-12'); // Empuja la lista hacia abajo
                 
                 if (badge) {
                     badge.innerText = count;
@@ -862,9 +877,7 @@ const App = {
                     tabMisTurnos.classList.remove('border-slate-200');
                 }
             } else {
-                // APAGAR RUIDO VISUAL
                 if (banner) banner.classList.add('hidden');
-                if (listaSection) listaSection.classList.remove('pt-12');
                 
                 if (badge) badge.classList.add('hidden');
                 if (tabMisTurnos) {
@@ -927,7 +940,7 @@ const App = {
             console.error("Error guardando tiempo:", err);
             alert("❌ Hubo un error al guardar la configuración.");
         } finally {
-            btn.innerHTML = '<i class="fas fa-save"></i> Guardar';
+            btn.innerHTML = 'Guardar';
         }
     }
 };
