@@ -62,7 +62,7 @@
                             <span class="text-[#8DC63F] font-bold">Saber</span><span class="text-[#0085CA] font-bold">Bot</span>
                         </div>
                     </div>
-                    <div class="text-[13px] text-slate-500 uppercase tracking-[0.3em] font-medium mt-5 text-center w-full font-outfit">Supernumerarios</div>
+                    <div class="text-[11px] text-slate-500 uppercase tracking-[0.3em] font-medium mt-5 text-center w-full font-outfit">Supernumerarios</div>
                 </div>
 
                 <div class="p-6 text-center border-b border-gray-800">
@@ -99,7 +99,7 @@
                     <div id="section-lista" class="w-full md:w-1/3 lg:w-[350px] bg-white border-r flex flex-col h-full shadow-md z-10 shrink-0">
                         <div class="p-4 border-b bg-gray-50">
                             <div class="relative mb-3">
-                                <input type="text" placeholder="Buscar cédula o nombre..." class="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#0085CA] transition-all">
+                                <input type="text" id="search-input" oninput="App.cargarBolsaComun(true)" placeholder="Buscar nombre, celular o req..." class="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#0085CA] transition-all">
                                 <i class="fas fa-search absolute left-4 top-3 text-slate-400"></i>
                             </div>
                             
@@ -150,9 +150,6 @@
                                 </div>
                                 <div class="flex items-center space-x-3">
                                     <span id="etiqueta-admin-gestion" class="hidden bg-amber-100 text-amber-700 text-xs font-bold px-3 py-1 rounded-full"><i class="fas fa-eye mr-1"></i> Modo Supervisor</span>
-                                    <button id="btn-cerrar-chat" class="bg-rose-50 text-rose-600 border border-rose-200 px-4 py-1.5 rounded-lg hover:bg-rose-100 transition font-bold text-sm flex items-center">
-                                        <i class="fas fa-times-circle mr-1.5"></i> Cerrar
-                                    </button>
                                 </div>
                             </div>
 
@@ -176,15 +173,33 @@
                                     <i class="fas fa-lock mr-1"></i> Envío de mensajes deshabilitado (Política de Meta).
                                 </div>
 
+                                <div id="panel-reabrir-si" class="hidden text-center text-xs bg-amber-50 rounded-lg p-3 font-medium border border-amber-200 flex-col gap-2 items-center justify-center">
+                                    <p class="text-amber-800 font-bold"><i class="fas fa-info-circle"></i> El operario confirmó asistencia. El chat se encuentra archivado automáticamente.</p>
+                                    <button id="btn-reabrir-conversacion-si" onclick="App.reabrirChatSi()" class="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded-lg shadow transition-colors text-xs flex items-center gap-1">
+                                        <i class="fas fa-unlock"></i> Habilitar conversación (Ventana 20h)
+                                    </button>
+                                </div>
+
                                 <div id="panel-acciones-manuales" class="flex space-x-2 mb-3 mt-2">
                                     <button id="btn-confirmar" class="bg-[#10b981] text-white p-3 md:px-4 md:py-2.5 rounded-lg font-bold hover:bg-[#059669] text-xs md:text-sm flex-1 flex justify-center items-center transition-colors"><i class="fas fa-check md:mr-2"></i><span class="hidden md:inline">CONFIRMAR</span></button>
                                     <button id="btn-rechazar" class="bg-[#f43f5e] text-white p-3 md:px-4 md:py-2.5 rounded-lg font-bold hover:bg-[#e11d48] text-xs md:text-sm flex-1 flex justify-center items-center transition-colors"><i class="fas fa-times md:mr-2"></i><span class="hidden md:inline">RECHAZAR</span></button>
                                     <button id="btn-llamada" onclick="App.registrarLlamada()" class="bg-[#0085CA]/10 text-[#0085CA] border border-[#0085CA]/20 p-3 md:px-4 md:py-2.5 rounded-lg font-bold hover:bg-[#0085CA]/20 text-xs md:text-sm flex-none flex justify-center items-center transition-colors" title="Registrar intento de llamada"><i class="fas fa-phone-alt"></i></button>
                                 </div>
 
+                                <div id="container-respuestas-rapidas" class="hidden mb-2 flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
+                                    <label class="text-[11px] font-bold text-slate-500 uppercase shrink-0"><i class="fas fa-bolt text-amber-500"></i> Respuestas Rápidas:</label>
+                                    <select id="select-respuestas-rapidas" onchange="App.seleccionarRespuestaRapida()" class="flex-1 bg-white border border-slate-200 rounded p-1 text-xs outline-none cursor-pointer">
+                                        <option value="">-- Selecciona una respuesta --</option>
+                                    </select>
+                                </div>
+
                                 <div id="area-escritura" class="flex items-center space-x-2 mt-2">
                                     <input type="text" id="chat-input" autocomplete="off" placeholder="Escribe un mensaje de WhatsApp..." class="flex-1 bg-slate-100 border border-slate-200 focus:border-[#8DC63F] focus:bg-white rounded-full px-5 py-3 text-sm outline-none transition-all">
                                     <button id="btn-enviar-msg" class="bg-[#8DC63F] text-white rounded-full min-w-[48px] h-[48px] flex items-center justify-center hover:bg-[#7AB030] shadow-md transition-transform hover:scale-105"><i class="fas fa-paper-plane"></i></button>
+                                    
+                                    <button id="btn-cerrar-chat" class="bg-rose-50 text-rose-600 border border-rose-200 min-w-[48px] h-[48px] px-4 rounded-xl hover:bg-rose-100 transition font-bold text-xs md:text-sm flex justify-center items-center shrink-0">
+                                        <i class="fas fa-times-circle md:mr-1"></i><span class="hidden md:inline">Cerrar</span>
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -194,10 +209,25 @@
 
             <div id="view-usuarios" class="hidden absolute inset-0 overflow-y-auto p-4 md:p-6 bg-slate-50 z-10 w-full">
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-                    <h2 class="text-2xl font-bold text-slate-800 font-outfit">Gestión de Usuarios</h2>
+                    <h2 class="text-2xl font-bold text-slate-800 font-outfit">Gestión de Usuarios y Configuración</h2>
                     <button onclick="App.abrirModalUsuario()" class="bg-[#8DC63F] text-white px-4 py-2 rounded-lg font-bold shadow-md hover:bg-[#7AB030] transition-colors flex items-center text-sm">
                         <i class="fas fa-user-plus mr-2"></i> Crear Usuario
                     </button>
+                </div>
+
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+                    <div class="bg-slate-50 p-4 border-b border-slate-200">
+                        <h3 class="font-bold text-slate-800 text-sm"><i class="fas fa-bolt text-amber-500 mr-2"></i> Mensajes Personalizados (Respuestas Rápidas)</h3>
+                    </div>
+                    <div class="p-5 space-y-4">
+                        <p class="text-xs text-slate-500">Agrega respuestas predefinidas que los coordinadores podrán usar para agilizar el chat. Usa la variable <span class="font-mono bg-slate-100 px-1 py-0.5 rounded font-bold text-rose-600">{coordinador}</span> para inyectar su nombre de manera dinámica.</p>
+                        <div class="flex gap-2">
+                            <input type="text" id="nueva-respuesta-rapida" placeholder="Ej: Hola, soy {coordinador} de CasaLimpia..." class="flex-1 border border-slate-200 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-[#0085CA]">
+                            <button onclick="App.guardarRespuestaRapida()" class="bg-[#0085CA] text-white px-5 py-2.5 rounded-lg font-bold text-sm hover:bg-[#0070ab] transition-colors shadow">Agregar</button>
+                        </div>
+                        <div class="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-[180px] overflow-y-auto bg-slate-50" id="lista-respuestas-rapidas-container">
+                            </div>
+                    </div>
                 </div>
 
                 <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
