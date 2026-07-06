@@ -1001,7 +1001,7 @@ const App = {
             alert(`✅ Tiempo actualizado a ${inputHoras}h y ${inputMinutos}m.`);
         } catch (err) {
             alert("❌ Error.");
-        }_finally {
+        }finally {
             btn.innerHTML = 'Guardar';
         }
     }
