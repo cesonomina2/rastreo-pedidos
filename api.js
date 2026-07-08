@@ -57,19 +57,25 @@ const API = {
         }
     },
 
+
     // ==========================================
-    // 2. OBTENER PERFIL DE USUARIO
+    // 2. OBTENER PERFIL DE USUARIO BLINDADO
     // ==========================================
     async obtenerPerfil(identificador) {
         let query = supabaseClient.from('usuarios_plataforma').select('*');
         
         if (identificador.includes('@')) {
-            query = query.eq('correo', identificador);
+            // Usamos .ilike para ignorar mayúsculas y minúsculas (ej: Admin@ = admin@)
+            query = query.ilike('correo', identificador);
         } else {
+            // Buscamos por cédula
             query = query.eq('cedula', identificador);
         }
 
-        const { data, error } = await query.single();
+        // EL TRUCO: Le decimos .limit(1) para que si hay duplicados fantasma, 
+        // solo coja el primero y no colapse la aplicación.
+        const { data, error } = await query.limit(1).maybeSingle();
+        
         if (error) throw error;
         
         return data;

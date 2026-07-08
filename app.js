@@ -1,4 +1,4 @@
-// app.js - Director de Orquesta Completo Mapeado al SIC (SaberBot)
+// app.js - Director de Orquesta Dual (SIC + Consultas)
 
 const App = {
     usuarioActual: null,
@@ -42,7 +42,7 @@ const App = {
             }
 
             this.cargarDiccionarioUsuarios();
-            this.cargarRespuestasRapidas(); // Carga de mensajes rápidos
+            this.cargarRespuestasRapidas();
             this.cargarBolsaComun();
             this.iniciarMotorTiempoReal();
             this.controlarAlertasVisuales();
@@ -64,6 +64,11 @@ const App = {
         }
     },
 
+    // LA MAGIA: Determina qué tabla usar dependiendo del botón clickeado
+    obtenerTablaActual() {
+        return this.estadoFiltroActivo === 'consulta' ? 'consultas_generales' : 'requerimientos_turnos_sic';
+    },
+
     iniciarMotorTiempoReal() {
         supabaseClient.channel('cambios-globales')
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mensajes_chat' }, payload => {
@@ -83,11 +88,16 @@ const App = {
                     }
                 }
             })
-            // MIGRADO: Escuchador en tiempo real apunta a la tabla del SIC
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'requerimientos_turnos_sic' }, payload => {
+            // Escuchar cambios en la tabla del SIC
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'requerimientos_turnos_sic' }, () => {
                 this.actualizarContadores();
                 this.controlarAlertasVisuales();
-                this.cargarBolsaComun(true); 
+                if(this.estadoFiltroActivo !== 'consulta') this.cargarBolsaComun(true); 
+            })
+            // Escuchar cambios en la tabla de Consultas
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'consultas_generales' }, () => {
+                this.actualizarContadores();
+                if(this.estadoFiltroActivo === 'consulta') this.cargarBolsaComun(true); 
             })
             .subscribe();
     },
@@ -210,38 +220,45 @@ const App = {
                     }
                 }
 
+                // Limpiamos el chat al cambiar de filtro para no arrastrar info equivocada
+                document.getElementById('chat-activo').classList.add('hidden');
+                document.getElementById('chat-activo').classList.remove('flex');
+                document.getElementById('chat-vacio').classList.remove('hidden');
+                document.getElementById('chat-vacio').classList.add('flex');
+                this.turnoActivoId = null;
+
                 this.estadoFiltroActivo = filtroId;
                 this.cargarBolsaComun(); 
             });
         });
     },
 
-    // MIGRADO: Conteo Inteligente y adaptativo sobre la tabla del SIC
     async actualizarContadores() {
         try {
-            let query = supabaseClient.from('requerimientos_turnos_sic').select('estado_operativo');
+            // Contamos SIC y Consultas al mismo tiempo
+            let qSic = supabaseClient.from('requerimientos_turnos_sic').select('estado_operativo');
+            let qCons = supabaseClient.from('consultas_generales').select('id');
 
             if (this.vistaAsignacionActiva === 'comun') {
-                query = query.is('clear', null).is('gestionado_por', null);
+                qSic = qSic.is('gestionado_por', null);
+                qCons = qCons.is('gestionado_por', null).neq('estado_operativo', 'cerrado');
             } else if (this.vistaAsignacionActiva === 'mis_turnos') {
-                query = query.eq('gestionado_por', this.usuarioActual.cedula);
+                qSic = qSic.eq('gestionado_por', this.usuarioActual.cedula);
+                qCons = qCons.eq('gestionado_por', this.usuarioActual.cedula).neq('estado_operativo', 'cerrado');
             } else if (this.vistaAsignacionActiva === 'en_atencion') {
-                query = query.not('gestionado_por', 'is', null);
+                qSic = qSic.not('gestionado_por', 'is', null);
+                qCons = qCons.not('gestionado_por', 'is', null).neq('estado_operativo', 'cerrado');
             }
 
-            const { data, error } = await query;
-            if (error) throw error;
-
-            const counts = { pendiente_respuesta: 0, consulta: 0, si: 0, no: 0 };
-            data.forEach(t => {
-                if (counts[t.estado_operativo] !== undefined) counts[t.estado_operativo]++;
-            });
+            const [resSic, resCons] = await Promise.all([qSic, qCons]);
+            const counts = { pendiente_respuesta: 0, si: 0, no: 0 };
+            
+            if (resSic.data) {
+                resSic.data.forEach(t => { if (counts[t.estado_operativo] !== undefined) counts[t.estado_operativo]++; });
+            }
 
             const countPendientes = document.getElementById('count-pendientes');
             if (countPendientes) countPendientes.innerText = counts.pendiente_respuesta;
-            
-            const countConsulta = document.getElementById('count-consulta');
-            if (countConsulta) countConsulta.innerText = counts.consulta;
             
             const countSi = document.getElementById('count-si');
             if (countSi) countSi.innerText = counts.si;
@@ -249,8 +266,11 @@ const App = {
             const countNo = document.getElementById('count-no');
             if (countNo) countNo.innerText = counts.no;
 
+            const countConsulta = document.getElementById('count-consulta');
+            if (countConsulta) countConsulta.innerText = resCons.data ? resCons.data.length : 0;
+
         } catch (err) {
-            console.error("Error al contar turnos:", err);
+            console.error("Error al contar:", err);
         }
     },
 
@@ -260,10 +280,10 @@ const App = {
             btnCerrarChat.addEventListener('click', async () => {
                 if (!this.turnoActivoId) return;
                 
-                if(confirm("¿Estás seguro de que deseas cerrar este requerimiento de forma manual?")) {
+                if(confirm("¿Estás seguro de que deseas cerrar este requerimiento/consulta de forma manual?")) {
                     try {
                         const { error } = await supabaseClient
-                            .from('requerimientos_turnos_sic')
+                            .from(this.obtenerTablaActual())
                             .update({ 
                                 estado_operativo: 'cerrado', 
                                 gestionado_por: this.usuarioActual.cedula,
@@ -332,9 +352,9 @@ const App = {
             }]);
 
             const { error } = await supabaseClient
-                .from('requerimientos_turnos_sic')
+                .from(this.obtenerTablaActual())
                 .update({ 
-                    estado_operativo: estadoDeseado, // Guardamos estado nativo (ej: si)
+                    estado_operativo: estadoDeseado, 
                     gestionado_por: this.usuarioActual.cedula,
                     motivo_cierre: estadoDeseado 
                 })
@@ -396,10 +416,9 @@ const App = {
             if (error) throw error;
 
             if (this.vistaAsignacionActiva === 'comun') {
-                await supabaseClient.from('requerimientos_turnos_sic')
+                await supabaseClient.from(this.obtenerTablaActual())
                     .update({ 
-                        gestionado_por: this.usuarioActual.cedula,
-                        estado_operativo: 'consulta'
+                        gestionado_por: this.usuarioActual.cedula
                     })
                     .eq('id', this.turnoActivoId)
                     .is('gestionado_por', null);
@@ -407,39 +426,35 @@ const App = {
                 this.cambiarVistaBolsa('mis_turnos');
             }
 
-            await fetch('https://n8n.casalimpia.com/webhook/respuesta-coordinador', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer MiClaveSecreta2026'
-                },
-                body: JSON.stringify({
-                    telefono: this.turnoActivoTelefono,
-                    texto: texto
-                })
-            });
 
         } catch (err) {
             console.error("Error enviando:", err);
         }
     },
 
-    // MIGRADO: Motor con Buscador Inteligente Multi-parámetro integrado (Punto 3)
     async cargarBolsaComun(silencioso = false) {
         this.actualizarContadores();
         const contenedor = document.getElementById('lista-turnos-container');
         const searchVal = document.getElementById('search-input') ? document.getElementById('search-input').value.trim() : '';
-        
+        const tablaActual = this.obtenerTablaActual();
+
         if(!silencioso) {
             contenedor.innerHTML = '<div class="p-6 text-center text-slate-500"><i class="fas fa-spinner fa-spin text-2xl mb-2"></i><p>Cargando...</p></div>';
         }
 
         try {
-            let query = supabaseClient.from('requerimientos_turnos_sic')
+            let query = supabaseClient.from(tablaActual)
                 .select('*')
-                .eq('estado_operativo', this.estadoFiltroActivo)
                 .order('created_at', { ascending: false })
                 .limit(30); 
+
+            if (this.estadoFiltroActivo === 'cerrado') {
+                query = query.eq('estado_operativo', 'cerrado');
+            } else if (this.estadoFiltroActivo === 'consulta') {
+                query = query.neq('estado_operativo', 'cerrado'); // En consultas traemos todo lo que no esté cerrado
+            } else {
+                query = query.eq('estado_operativo', this.estadoFiltroActivo);
+            }
 
             if (this.estadoFiltroActivo !== 'cerrado') {
                 if (this.vistaAsignacionActiva === 'comun') {
@@ -451,9 +466,13 @@ const App = {
                 }
             }
 
-            // APLICACIÓN DEL BUSCADOR (PUNTO 3)
+            // BUSCADOR DUAL
             if (searchVal) {
-                query = query.or(`nombre.ilike.%${searchVal}%,apellido.ilike.%${searchVal}%,cedula.ilike.%${searchVal}%,celular.ilike.%${searchVal}%,codigo_requerimiento.ilike.%${searchVal}%`);
+                if (tablaActual === 'requerimientos_turnos_sic') {
+                    query = query.or(`nombre.ilike.%${searchVal}%,apellido.ilike.%${searchVal}%,cedula.ilike.%${searchVal}%,celular.ilike.%${searchVal}%,codigo_requerimiento.ilike.%${searchVal}%`);
+                } else {
+                    query = query.or(`nombres_completos.ilike.%${searchVal}%,telefono.ilike.%${searchVal}%,numero_requerimiento.ilike.%${searchVal}%`);
+                }
             }
 
             const { data, error } = await query;
@@ -489,23 +508,25 @@ const App = {
                     badgeGestor = `<div class="absolute top-2 right-2 bg-amber-100 text-amber-700 text-[9px] px-2 py-0.5 rounded shadow-sm font-bold truncate max-w-[120px]" title="${nombreGestor}"><i class="fas fa-headset mr-1"></i> ${nombreGestor}</div>`;
                 }
 
-                // NUEVO: INDICADOR VISUAL WHATSAPP ENVIADO
                 let badgeWhatsApp = '';
-                if (turno.whatsapp_enviado) {
+                if (tablaActual === 'consultas_generales') {
+                    badgeWhatsApp = `<span class="text-blue-500 font-bold text-[11px]"><i class="fas fa-info-circle"></i> Soporte Interno</span>`;
+                } else if (turno.whatsapp_enviado) {
                     badgeWhatsApp = `<span class="text-emerald-500 font-bold text-[11px]"><i class="fab fa-whatsapp"></i> Notificado</span>`;
                 } else {
                     badgeWhatsApp = `<span class="text-slate-400 font-medium text-[11px]"><i class="fab fa-whatsapp opacity-30"></i> Sin enviar</span>`;
                 }
 
-                // MAPEO COMPLETO A COLUMNAS DEL SIC
-                const nombreCompleto = `${turno.nombre || ''} ${turno.apellido || ''}`.trim() || 'Desconocido';
+                // Extracción segura para soportar ambas tablas
+                const nombreCompleto = turno.nombres_completos || `${turno.nombre || ''} ${turno.apellido || ''}`.trim() || 'Desconocido';
+                const idMostrar = turno.numero_requerimiento || turno.codigo_requerimiento || turno.id_asignacion || 'N/A';
 
                 tarjeta.innerHTML = `
                     ${badgeGestor}
                     <div class="flex justify-between items-start">
                         <h4 class="font-bold text-slate-800 text-sm uppercase pr-16">${nombreCompleto}</h4>
                     </div>
-                    <p class="text-xs text-slate-500 mt-1">C.C. ${turno.cedula || 'N/A'} - Req: <span class="font-bold font-mono">${turno.codigo_requerimiento || turno.id_asignacion || 'N/A'}</span></p>
+                    <p class="text-xs text-slate-500 mt-1">Req: <span class="font-bold font-mono">${idMostrar}</span></p>
                     <div class="mt-2 flex justify-between items-center">
                         ${badgeWhatsApp}
                         <span class="text-xs text-slate-400 font-medium">${horaLocal}</span>
@@ -532,21 +553,26 @@ const App = {
         }
     },
 
-    // MIGRADO: Manejo de reaperturas protegidas para confirmados SI (Punto 2)
     abrirChat(turno) {
         this.turnoActivoId = turno.id;
-        this.turnoActivoTelefono = turno.celular; 
+        this.turnoActivoTelefono = turno.telefono || turno.celular; 
 
         document.getElementById('chat-vacio').classList.add('hidden');
         document.getElementById('chat-vacio').classList.remove('flex');
         document.getElementById('chat-activo').classList.remove('hidden');
         document.getElementById('chat-activo').classList.add('flex');
 
-        const nombreCompleto = `${turno.nombre || ''} ${turno.apellido || ''}`.trim() || 'Desconocido';
+        const nombreCompleto = turno.nombres_completos || `${turno.nombre || ''} ${turno.apellido || ''}`.trim() || 'Desconocido';
+        const telefonoMostrar = turno.telefono || turno.celular || 'N/A';
+        const idMostrar = turno.numero_requerimiento || turno.codigo_requerimiento || 'N/A';
+
         document.getElementById('chat-header-nombre').innerText = nombreCompleto;
-        document.getElementById('chat-header-cedula').innerText = `C.C. ${turno.cedula || 'N/A'} | Tel: ${turno.celular || 'N/A'} | Req: ${turno.codigo_requerimiento || 'N/A'}`;
-        document.getElementById('chat-info-cliente').innerText = turno.cliente || 'N/A';
-        document.getElementById('chat-info-horario').innerText = `${turno.hora_servicio_desde || ''} - ${turno.hora_servicio_hasta || ''}`;
+        document.getElementById('chat-header-cedula').innerText = `Tel: ${telefonoMostrar} | Req: ${idMostrar}`;
+        
+        const infoCliente = document.getElementById('chat-info-cliente');
+        const infoHorario = document.getElementById('chat-info-horario');
+        if (infoCliente) infoCliente.innerText = turno.cliente || 'Soporte / Sin Turno';
+        if (infoHorario) infoHorario.innerText = turno.hora_servicio_desde ? `${turno.hora_servicio_desde} - ${turno.hora_servicio_hasta}` : 'N/A';
 
         const panelBotones = document.getElementById('panel-acciones-manuales');
         const areaEscritura = document.getElementById('area-escritura');
@@ -561,11 +587,10 @@ const App = {
             etiquetaAdmin.classList.add('hidden');
         }
 
-        // CONTROL LÓGICO DE ACCIONES Y VENTANA PROTEGIDA SI (PUNTO 2)
         panelReabrirSi.classList.add('hidden');
         if (rpContainer) rpContainer.classList.add('hidden');
 
-        if (turno.estado_operativo === 'pendiente_respuesta') {
+        if (turno.estado_operativo === 'pendiente_respuesta' && this.obtenerTablaActual() !== 'consultas_generales') {
             panelBotones.classList.remove('hidden'); panelBotones.classList.add('flex');
             areaEscritura.classList.add('hidden'); areaEscritura.classList.remove('flex');
             avisoMeta.classList.remove('hidden');
@@ -574,12 +599,10 @@ const App = {
             areaEscritura.classList.add('hidden'); areaEscritura.classList.remove('flex');
             avisoMeta.classList.add('hidden');
         } else if (turno.estado_operativo === 'si') {
-            // Se auto-cierra/bloquea, requiere el botón de validación de 20h
             panelBotones.classList.add('hidden'); panelBotones.classList.remove('flex');
             areaEscritura.classList.add('hidden'); areaEscritura.classList.remove('flex');
             avisoMeta.classList.add('hidden');
-            panelReabrirSi.classList.remove('hidden');
-            panelReabrirSi.classList.add('flex');
+            panelReabrirSi.classList.remove('hidden'); panelReabrirSi.classList.add('flex');
         } else {
             panelBotones.classList.add('hidden'); panelBotones.classList.remove('flex');
             areaEscritura.classList.remove('hidden'); areaEscritura.classList.add('flex');
@@ -596,7 +619,6 @@ const App = {
         }
     },
 
-    // FUNCIÓN DE CONTROL: Validación de ventana segura de 20h (Punto 2)
     async reabrirChatSi() {
         if (!this.turnoActivoId) return;
         try {
@@ -712,10 +734,6 @@ const App = {
         const zonaChat = document.querySelector('#section-chat .overflow-y-auto');
         if (zonaChat) zonaChat.scrollTop = zonaChat.scrollHeight;
     },
-
-    // ---------------------------------------------------------
-    // MÓDULO DE GESTIÓN Y SEGURIDAD DE USUARIOS
-    // ---------------------------------------------------------
     
     async cargarUsuarios() {
         const contenedor = document.getElementById('lista-usuarios-container');
@@ -838,9 +856,6 @@ const App = {
         }
     },
 
-    // ---------------------------------------------------------
-    // NUEVOS PROCESOS: BANCO DE MENSAJES PERSONALIZADOS (PUNTO 4)
-    // ---------------------------------------------------------
     async cargarRespuestasRapidas() {
         try {
             const { data, error } = await supabaseClient
@@ -850,7 +865,6 @@ const App = {
                 
             if (error) return console.warn("Respuestas rápidas no configuradas.");
             
-            // Rellenar select de conversación
             const select = document.getElementById('select-respuestas-rapidas');
             if (select) {
                 select.innerHTML = '<option value="">-- Selecciona una respuesta rápida --</option>';
@@ -862,7 +876,6 @@ const App = {
                 });
             }
             
-            // Rellenar panel administrativo
             const contenedorAdmin = document.getElementById('lista-respuestas-rapidas-container');
             if (contenedorAdmin) {
                 contenedorAdmin.innerHTML = '';
@@ -920,7 +933,6 @@ const App = {
         
         let textoInyectado = select.value;
         if (this.usuarioActual && this.usuarioActual.nombre_completo) {
-            // REEMPLAZO DINÁMICO DE LA VARIABLE {coordinador}
             textoInyectado = textoInyectado.replace(/{coordinador}/g, this.usuarioActual.nombre_completo);
         }
         
@@ -929,9 +941,6 @@ const App = {
         inputChat.focus();
     },
 
-    // ---------------------------------------------------------
-    // MÓDULO DE ALERTAS VISUALES Y CONFIGURACIÓN
-    // ---------------------------------------------------------
     async controlarAlertasVisuales() {
         if (!this.usuarioActual) return;
         try {
@@ -1001,7 +1010,7 @@ const App = {
             alert(`✅ Tiempo actualizado a ${inputHoras}h y ${inputMinutos}m.`);
         } catch (err) {
             alert("❌ Error.");
-        }finally {
+        } finally {
             btn.innerHTML = 'Guardar';
         }
     }
