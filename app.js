@@ -97,6 +97,8 @@ const App = {
             // Escuchar cambios en la tabla de Consultas
             .on('postgres_changes', { event: '*', schema: 'public', table: 'consultas_generales' }, () => {
                 this.actualizarContadores();
+                // 🌟 LÍNEA CORREGIDA: Ahora sí dispara las alarmas cuando una consulta cambia
+                this.controlarAlertasVisuales(); 
                 if(this.estadoFiltroActivo === 'consulta') this.cargarBolsaComun(true); 
             })
             .subscribe();
@@ -436,27 +438,55 @@ const App = {
         this.actualizarContadores();
         const contenedor = document.getElementById('lista-turnos-container');
         const searchVal = document.getElementById('search-input') ? document.getElementById('search-input').value.trim() : '';
-        const tablaActual = this.obtenerTablaActual();
-
+        
         if(!silencioso) {
             contenedor.innerHTML = '<div class="p-6 text-center text-slate-500"><i class="fas fa-spinner fa-spin text-2xl mb-2"></i><p>Cargando...</p></div>';
         }
 
         try {
-            let query = supabaseClient.from(tablaActual)
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(30); 
+            let data = [];
 
             if (this.estadoFiltroActivo === 'cerrado') {
-                query = query.eq('estado_operativo', 'cerrado');
-            } else if (this.estadoFiltroActivo === 'consulta') {
-                query = query.neq('estado_operativo', 'cerrado'); // En consultas traemos todo lo que no esté cerrado
-            } else {
-                query = query.eq('estado_operativo', this.estadoFiltroActivo);
-            }
+                // 🌟 LÓGICA DE FUSIÓN: Traemos los cerrados de AMBAS tablas
+                let qSic = supabaseClient.from('requerimientos_turnos_sic').select('*').eq('estado_operativo', 'cerrado').order('created_at', { ascending: false }).limit(30);
+                let qCons = supabaseClient.from('consultas_generales').select('*').eq('estado_operativo', 'cerrado').order('created_at', { ascending: false }).limit(30);
+                
+                if (searchVal) {
+                    qSic = qSic.or(`nombre.ilike.%${searchVal}%,apellido.ilike.%${searchVal}%,cedula.ilike.%${searchVal}%,celular.ilike.%${searchVal}%,codigo_requerimiento.ilike.%${searchVal}%`);
+                    qCons = qCons.or(`nombres_completos.ilike.%${searchVal}%,telefono.ilike.%${searchVal}%,numero_requerimiento.ilike.%${searchVal}%`);
+                }
 
-            if (this.estadoFiltroActivo !== 'cerrado') {
+                if (this.vistaAsignacionActiva === 'mis_turnos') {
+                    qSic = qSic.eq('gestionado_por', this.usuarioActual.cedula);
+                    qCons = qCons.eq('gestionado_por', this.usuarioActual.cedula);
+                } else if (this.vistaAsignacionActiva === 'en_atencion') {
+                    qSic = qSic.not('gestionado_por', 'is', null);
+                    qCons = qCons.not('gestionado_por', 'is', null);
+                }
+
+                const [resSic, resCons] = await Promise.all([qSic, qCons]);
+                if (resSic.error) throw resSic.error;
+                if (resCons.error) throw resCons.error;
+                
+                // Unimos ambas listas y las ordenamos de más reciente a más antiguo
+                data = [...resSic.data, ...resCons.data];
+                data.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                data = data.slice(0, 30); // Mostramos solo los últimos 30 en total
+
+            } else {
+                // 🌟 LÓGICA NORMAL: Buscar solo en la tabla activa
+                const tablaActual = this.obtenerTablaActual();
+                let query = supabaseClient.from(tablaActual)
+                    .select('*')
+                    .order('created_at', { ascending: false })
+                    .limit(30); 
+                
+                if (this.estadoFiltroActivo === 'consulta') {
+                    query = query.neq('estado_operativo', 'cerrado'); 
+                } else {
+                    query = query.eq('estado_operativo', this.estadoFiltroActivo);
+                }
+
                 if (this.vistaAsignacionActiva === 'comun') {
                     query = query.is('gestionado_por', null);
                 } else if (this.vistaAsignacionActiva === 'mis_turnos') {
@@ -464,19 +494,19 @@ const App = {
                 } else if (this.vistaAsignacionActiva === 'en_atencion') {
                     query = query.not('gestionado_por', 'is', null);
                 }
-            }
 
-            // BUSCADOR DUAL
-            if (searchVal) {
-                if (tablaActual === 'requerimientos_turnos_sic') {
-                    query = query.or(`nombre.ilike.%${searchVal}%,apellido.ilike.%${searchVal}%,cedula.ilike.%${searchVal}%,celular.ilike.%${searchVal}%,codigo_requerimiento.ilike.%${searchVal}%`);
-                } else {
-                    query = query.or(`nombres_completos.ilike.%${searchVal}%,telefono.ilike.%${searchVal}%,numero_requerimiento.ilike.%${searchVal}%`);
+                if (searchVal) {
+                    if (tablaActual === 'requerimientos_turnos_sic') {
+                        query = query.or(`nombre.ilike.%${searchVal}%,apellido.ilike.%${searchVal}%,cedula.ilike.%${searchVal}%,celular.ilike.%${searchVal}%,codigo_requerimiento.ilike.%${searchVal}%`);
+                    } else {
+                        query = query.or(`nombres_completos.ilike.%${searchVal}%,telefono.ilike.%${searchVal}%,numero_requerimiento.ilike.%${searchVal}%`);
+                    }
                 }
-            }
 
-            const { data, error } = await query;
-            if (error) throw error;
+                const result = await query;
+                if (result.error) throw result.error;
+                data = result.data;
+            }
 
             contenedor.innerHTML = ''; 
 
@@ -509,7 +539,7 @@ const App = {
                 }
 
                 let badgeWhatsApp = '';
-                if (tablaActual === 'consultas_generales') {
+                if (turno.numero_requerimiento) { // Si tiene esta columna, sabemos que es de Consultas Generales
                     badgeWhatsApp = `<span class="text-blue-500 font-bold text-[11px]"><i class="fas fa-info-circle"></i> Soporte Interno</span>`;
                 } else if (turno.whatsapp_enviado) {
                     badgeWhatsApp = `<span class="text-emerald-500 font-bold text-[11px]"><i class="fab fa-whatsapp"></i> Notificado</span>`;
@@ -517,7 +547,6 @@ const App = {
                     badgeWhatsApp = `<span class="text-slate-400 font-medium text-[11px]"><i class="fab fa-whatsapp opacity-30"></i> Sin enviar</span>`;
                 }
 
-                // Extracción segura para soportar ambas tablas
                 const nombreCompleto = turno.nombres_completos || `${turno.nombre || ''} ${turno.apellido || ''}`.trim() || 'Desconocido';
                 const idMostrar = turno.numero_requerimiento || turno.codigo_requerimiento || turno.id_asignacion || 'N/A';
 
@@ -554,69 +583,112 @@ const App = {
     },
 
     abrirChat(turno) {
+        // 1. MEMORIA DEL SISTEMA
         this.turnoActivoId = turno.id;
         this.turnoActivoTelefono = turno.telefono || turno.celular; 
+        this.turnoActivoTabla = turno.numero_requerimiento ? 'consultas_generales' : 'requerimientos_turnos_sic';
 
-        document.getElementById('chat-vacio').classList.add('hidden');
-        document.getElementById('chat-vacio').classList.remove('flex');
-        document.getElementById('chat-activo').classList.remove('hidden');
-        document.getElementById('chat-activo').classList.add('flex');
+        // 2. CAMBIO VISUAL
+        const vistaVacia = document.getElementById('chat-vacio');
+        const vistaActiva = document.getElementById('chat-activo');
+        if (vistaVacia) vistaVacia.classList.add('hidden');
+        if (vistaActiva) {
+            vistaActiva.classList.remove('hidden');
+            vistaActiva.classList.add('flex');
+        }
 
+        if (window.innerWidth < 768) {
+            const listaCol = document.getElementById('lista-turnos-col');
+            if (listaCol) listaCol.classList.add('hidden');
+        }
+
+        // 3. ENCABEZADO
         const nombreCompleto = turno.nombres_completos || `${turno.nombre || ''} ${turno.apellido || ''}`.trim() || 'Desconocido';
-        const telefonoMostrar = turno.telefono || turno.celular || 'N/A';
-        const idMostrar = turno.numero_requerimiento || turno.codigo_requerimiento || 'N/A';
-
-        document.getElementById('chat-header-nombre').innerText = nombreCompleto;
-        document.getElementById('chat-header-cedula').innerText = `Tel: ${telefonoMostrar} | Req: ${idMostrar}`;
+        const idMostrar = turno.numero_requerimiento || turno.codigo_requerimiento || turno.id_asignacion || 'N/A';
         
-        const infoCliente = document.getElementById('chat-info-cliente');
-        const infoHorario = document.getElementById('chat-info-horario');
-        if (infoCliente) infoCliente.innerText = turno.cliente || 'Soporte / Sin Turno';
-        if (infoHorario) infoHorario.innerText = turno.hora_servicio_desde ? `${turno.hora_servicio_desde} - ${turno.hora_servicio_hasta}` : 'N/A';
+        const nombreEl = document.getElementById('chat-header-nombre');
+        const reqEl = document.getElementById('chat-header-req');
+        if (nombreEl) nombreEl.innerText = nombreCompleto;
+        if (reqEl) reqEl.innerText = idMostrar;
 
-        const panelBotones = document.getElementById('panel-acciones-manuales');
-        const areaEscritura = document.getElementById('area-escritura');
+        // 4. LÓGICA DE ESTADOS Y LIMPIEZA VISUAL
+        const areaInput = document.getElementById('area-escritura');
+        const contenedorBotones = document.getElementById('panel-acciones-manuales');
+        const btnConfirmar = document.getElementById('btn-confirmar');
+        const btnRechazar = document.getElementById('btn-rechazar');
+        const btnLlamar = document.getElementById('btn-llamar');
+        const franjaDetalles = document.getElementById('franja-detalles-turno');
         const avisoMeta = document.getElementById('aviso-meta');
-        const etiquetaAdmin = document.getElementById('etiqueta-admin-gestion');
-        const panelReabrirSi = document.getElementById('panel-reabrir-si');
-        const rpContainer = document.getElementById('container-respuestas-rapidas');
+        
+        // 🌟 NUEVO: Capturamos el contenedor de respuestas rápidas
+        const containerRespuestas = document.getElementById('container-respuestas-rapidas');
 
-        if (this.vistaAsignacionActiva === 'en_atencion') {
-            etiquetaAdmin.classList.remove('hidden');
-        } else {
-            etiquetaAdmin.classList.add('hidden');
+        // Primero, ENCENDEMOS todo a su estado natural (reset visual)
+        if (franjaDetalles) franjaDetalles.classList.remove('hidden');
+        if (btnLlamar) btnLlamar.classList.remove('hidden');
+        if (contenedorBotones) {
+            contenedorBotones.classList.remove('hidden');
+            contenedorBotones.classList.add('flex');
+        }
+        if (btnConfirmar) btnConfirmar.classList.remove('hidden');
+        if (btnRechazar) btnRechazar.classList.remove('hidden');
+        if (areaInput) {
+            areaInput.classList.remove('hidden');
+            areaInput.classList.add('flex');
+        }
+        if (avisoMeta) avisoMeta.classList.add('hidden'); 
+        
+        // Apagamos las respuestas rápidas por defecto
+        if (containerRespuestas) {
+            containerRespuestas.classList.add('hidden');
+            containerRespuestas.classList.remove('flex');
         }
 
-        panelReabrirSi.classList.add('hidden');
-        if (rpContainer) rpContainer.classList.add('hidden');
-
-        if (turno.estado_operativo === 'pendiente_respuesta' && this.obtenerTablaActual() !== 'consultas_generales') {
-            panelBotones.classList.remove('hidden'); panelBotones.classList.add('flex');
-            areaEscritura.classList.add('hidden'); areaEscritura.classList.remove('flex');
-            avisoMeta.classList.remove('hidden');
-        } else if (turno.estado_operativo === 'cerrado') {
-            panelBotones.classList.add('hidden'); panelBotones.classList.remove('flex');
-            areaEscritura.classList.add('hidden'); areaEscritura.classList.remove('flex');
-            avisoMeta.classList.add('hidden');
-        } else if (turno.estado_operativo === 'si') {
-            panelBotones.classList.add('hidden'); panelBotones.classList.remove('flex');
-            areaEscritura.classList.add('hidden'); areaEscritura.classList.remove('flex');
-            avisoMeta.classList.add('hidden');
-            panelReabrirSi.classList.remove('hidden'); panelReabrirSi.classList.add('flex');
-        } else {
-            panelBotones.classList.add('hidden'); panelBotones.classList.remove('flex');
-            areaEscritura.classList.remove('hidden'); areaEscritura.classList.add('flex');
-            avisoMeta.classList.add('hidden');
-            if (rpContainer) rpContainer.classList.remove('hidden');
+        // Ahora evaluamos las reglas
+        if (turno.estado_operativo === 'cerrado') {
+            if (contenedorBotones) {
+                contenedorBotones.classList.add('hidden');
+                contenedorBotones.classList.remove('flex');
+            }
+            if (areaInput) {
+                areaInput.classList.add('hidden');
+                areaInput.classList.remove('flex');
+            }
+        } 
+        else if (this.turnoActivoTabla === 'consultas_generales' || turno.estado_operativo === 'consulta') {
+            // 🛑 CONSULTAS: Ocultamos botones, PERO ENCENDEMOS respuestas rápidas
+            if (contenedorBotones) {
+                contenedorBotones.classList.add('hidden');
+                contenedorBotones.classList.remove('flex');
+            }
+            if (franjaDetalles) franjaDetalles.classList.add('hidden'); 
+            
+            // 🌟 Activamos el menú de respuestas rápidas
+            if (containerRespuestas) {
+                containerRespuestas.classList.remove('hidden');
+                containerRespuestas.classList.add('flex'); 
+            }
+        } 
+        else if (turno.estado_operativo === 'pendiente_respuesta') {
+            if (areaInput) {
+                areaInput.classList.add('hidden');
+                areaInput.classList.remove('flex');
+            }
+        } 
+        else {
+            if (contenedorBotones) {
+                contenedorBotones.classList.add('hidden');
+                contenedorBotones.classList.remove('flex');
+            }
+            if (areaInput) {
+                areaInput.classList.add('hidden');
+                areaInput.classList.remove('flex');
+            }
+            if (avisoMeta) avisoMeta.classList.remove('hidden'); 
         }
 
+        // 5. CARGA FINAL
         this.cargarMensajes(turno.id);
-
-        if(window.innerWidth < 768) {
-            document.getElementById('section-lista').classList.add('hidden');
-            document.getElementById('section-chat').classList.remove('hidden');
-            document.getElementById('section-chat').classList.add('flex');
-        }
     },
 
     async reabrirChatSi() {
@@ -944,20 +1016,34 @@ const App = {
     async controlarAlertasVisuales() {
         if (!this.usuarioActual) return;
         try {
-            const { count, error } = await supabaseClient
+            // Contamos los pendientes del SIC de forma exacta
+            const qSic = supabaseClient
                 .from('requerimientos_turnos_sic')
-                .select('*', { count: 'exact', head: true })
+                .select('id')
                 .eq('gestionado_por', this.usuarioActual.cedula)
                 .neq('estado_operativo', 'cerrado');
                 
-            if (error) throw error;
+            // Contamos los pendientes de Consultas de forma exacta
+            const qCons = supabaseClient
+                .from('consultas_generales')
+                .select('id')
+                .eq('gestionado_por', this.usuarioActual.cedula)
+                .neq('estado_operativo', 'cerrado');
+
+            const [resSic, resCons] = await Promise.all([qSic, qCons]);
+            
+            // Sumamos los resultados reales
+            const countSic = resSic.data ? resSic.data.length : 0;
+            const countCons = resCons.data ? resCons.data.length : 0;
+            const totalCount = countSic + countCons;
+
             const banner = document.getElementById('banner-alerta-turnos');
             const badge = document.getElementById('badge-mis-turnos');
             const tabMisTurnos = document.getElementById('tab-mis-turnos');
             
-            if (count > 0) {
+            if (totalCount > 0) {
                 if (banner) banner.classList.remove('hidden');
-                if (badge) { badge.innerText = count; badge.classList.remove('hidden'); }
+                if (badge) { badge.innerText = totalCount; badge.classList.remove('hidden'); }
                 if (tabMisTurnos) { tabMisTurnos.classList.add('border-rose-500', 'text-rose-600'); tabMisTurnos.classList.remove('border-slate-200'); }
             } else {
                 if (banner) banner.classList.add('hidden');
@@ -968,7 +1054,7 @@ const App = {
                 }
             }
         } catch(err) {
-            console.error(err);
+            console.error("Error cargando alertas:", err);
         }
     },
 
