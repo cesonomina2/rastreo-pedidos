@@ -817,6 +817,7 @@ const App = {
             const { data, error } = await supabaseClient
                 .from('usuarios_plataforma')
                 .select('*')
+                .eq('estado', 'activo') // 🌟 ESTA ES LA LÍNEA MÁGICA
                 .order('nombre_completo', { ascending: true });
 
             if (error) throw error;
@@ -875,16 +876,24 @@ const App = {
         const nuevoRol = document.getElementById('nuevo-rol').value;
 
         try {
-            const respuesta = await fetch('https://n8n.casalimpia.com/webhook/crear-usuario-saberbot', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer MiClaveSecreta2026' },
-                body: JSON.stringify({ nombre: nuevoNombre, cedula: nuevaCedula, password: nuevaPassword, rol: nuevoRol })
-            });
-            if (!respuesta.ok) throw new Error("Error en servidor.");
-            this.cerrarModalUsuario(); this.cargarUsuarios(); this.cargarDiccionarioUsuarios();
-            alert("✅ Usuario creado correctamente.");
+            // Dejamos la orden en el buzón seguro de Supabase
+            const { error } = await supabaseClient.from('peticiones_usuarios').insert([{
+                accion: 'crear',
+                nombre: nuevoNombre,
+                cedula: nuevaCedula,
+                password: nuevaPassword,
+                rol: nuevoRol
+            }]);
+            
+            if (error) throw error;
+            
+            this.cerrarModalUsuario(); 
+            this.cargarUsuarios(); 
+            this.cargarDiccionarioUsuarios();
+            alert("✅ Orden de creación enviada con éxito.");
         } catch (err) {
-            alert("❌ No se pudo crear el usuario.");
+            console.error(err);
+            alert("❌ Error al enviar la orden a la base de datos.");
         } finally {
             btn.innerHTML = textoOriginal; btn.disabled = false;
         }
@@ -898,33 +907,42 @@ const App = {
         if(btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
         try {
-            const respuesta = await fetch('https://n8n.casalimpia.com/webhook/gestor-usuarios-saberbot', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer MiClaveSecreta2026' },
-                body: JSON.stringify({ accion: 'resetear', cedula: cedula, password: nuevaPassword })
-            });
-            if (!respuesta.ok) throw new Error("Rechazado");
-            alert(`✅ Contraseña de ${nombre} actualizada.`);
+            // Dejamos la orden en el buzón seguro de Supabase
+            const { error } = await supabaseClient.from('peticiones_usuarios').insert([{
+                accion: 'resetear',
+                cedula: cedula,
+                password: nuevaPassword
+            }]);
+            
+            if (error) throw error;
+            alert(`✅ Orden de cambio de contraseña enviada. Los cambios pueden tardar unos segundos.`);
         } catch(err) {
-            alert("❌ Error.");
+            console.error(err);
+            alert("❌ Error de conexión con la base de datos.");
         } finally {
             if(btn) btn.innerHTML = '<i class="fas fa-key"></i>';
         }
     },
 
     async eliminarUsuario(cedula, nombre) {
-        if(!confirm(`⚠️ ¿Eliminar a ${nombre}?`)) return;
+        if(!confirm(`⚠️ ¿Estás totalmente seguro de eliminar el acceso a ${nombre}?`)) return;
+
         try {
-            const respuesta = await fetch('https://n8n.casalimpia.com/webhook/gestor-usuarios-saberbot', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer MiClaveSecreta2026' },
-                body: JSON.stringify({ accion: 'eliminar', cedula: cedula })
-            });
-            if (!respuesta.ok) throw new Error("Rechazado");
-            this.cargarUsuarios(); this.cargarDiccionarioUsuarios();
-            alert(`✅ Usuario ${nombre} eliminado.`);
+            // Dejamos la orden en el buzón seguro de Supabase
+            const { error } = await supabaseClient.from('peticiones_usuarios').insert([{
+                accion: 'eliminar',
+                cedula: cedula
+            }]);
+            
+            if (error) throw error;
+            
+            // Recargamos la lista visualmente
+            this.cargarUsuarios(); 
+            this.cargarDiccionarioUsuarios();
+            alert(`✅ Orden de eliminación enviada al servidor.`);
         } catch (err) {
-            alert("❌ Error.");
+            console.error(err);
+            alert("❌ Error al enviar la orden de eliminación.");
         }
     },
 
