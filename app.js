@@ -5,7 +5,8 @@ const App = {
     vistaAsignacionActiva: 'comun', // comun | mis_turnos | en_atencion
     estadoFiltroActivo: 'pendiente_respuesta',
     turnoActivoId: null,
-    turnoActivoTelefono: null, 
+    turnoActivoTelefono: null,
+    turnoActivoDatos: null, 
     diccionarioUsuarios: {},
 
     init() {
@@ -130,6 +131,7 @@ const App = {
                         App.cargarUsuarios();
                         App.cargarRespuestasRapidas();
                         App.cargarConfiguracionTiempo();
+                        App.cargarConfiguracionMensajesAuto();
                     }
                 }
 
@@ -340,30 +342,40 @@ const App = {
         }
     },
 
-    async ejecutarAccionManual(mensajeSistema, estadoDeseado) {
+    async ejecutarAccionManual(mensajeBase, estadoDeseado) {
         if (!this.turnoActivoId) return;
 
-        if(!confirm("Esta acción archivará el turno inmediatamente. ¿Deseas continuar?")) return;
+        // 1. Pedimos las observaciones en pantalla
+        const accionTexto = estadoDeseado === 'si' ? 'CONFIRMACIÓN' : 'RECHAZO';
+        const observacion = prompt(`📝 Observaciones para esta ${accionTexto}:\nEscribe los detalles de la gestión manual:`);
+        
+        if (observacion === null) return; // Si el usuario le da a "Cancelar", detenemos todo
+
+        // Armamos el mensaje final
+        const textoFinal = `${mensajeBase}\n📝 Observación: ${observacion || 'Sin detalles adicionales.'}`;
 
         try {
+            // 2. Guardamos la observación en el chat
             await supabaseClient.from('mensajes_chat').insert([{
                 requerimiento_id: this.turnoActivoId,
                 tipo: 'sistema',
                 autor: this.usuarioActual.nombre_completo,
-                texto: mensajeSistema
+                texto: textoFinal
             }]);
 
+            // 3. 🌟 CERRAMOS EL TURNO (Y guardamos si fue un sí o no en el motivo)
             const { error } = await supabaseClient
                 .from(this.obtenerTablaActual())
                 .update({ 
-                    estado_operativo: estadoDeseado, 
+                    estado_operativo: 'cerrado', 
                     gestionado_por: this.usuarioActual.cedula,
-                    motivo_cierre: estadoDeseado 
+                    motivo_cierre: estadoDeseado === 'si' ? 'confirmado_manual' : 'rechazado_manual'
                 })
                 .eq('id', this.turnoActivoId);
 
             if (error) throw error;
 
+            // 4. Limpiamos la pantalla
             this.turnoActivoId = null;
             document.getElementById('chat-activo').classList.add('hidden');
             document.getElementById('chat-activo').classList.remove('flex');
@@ -381,17 +393,66 @@ const App = {
 
     async registrarLlamada() {
         if (!this.turnoActivoId) return;
-        if(!confirm("¿Deseas registrar un intento de llamada en la trazabilidad de este requerimiento?")) return;
+        
+        // 1. Pedimos las observaciones de la llamada
+        const observacion = prompt("📞 Registrar Llamada\n\nEscribe qué sucedió en la llamada (Ej: No contesta, Va en camino):");
+        
+        if (observacion === null) return; // Si le da a cancelar, no hace nada
+
+        const textoFinal = `📞 Intento de llamada telefónica.\n📝 Observación: ${observacion || 'Sin detalles.'}`;
 
         try {
+            // 2. Guardamos la nota en el chat
             await supabaseClient.from('mensajes_chat').insert([{
                 requerimiento_id: this.turnoActivoId,
                 tipo: 'sistema',
                 autor: this.usuarioActual.nombre_completo,
-                texto: '📞 El coordinador intentó contactar al operario mediante llamada telefónica.'
+                texto: textoFinal
             }]);
             
-            this.cargarMensajes(this.turnoActivoId);
+            // 3. PREGUNTAMOS SI QUIERE CERRAR EL TURNO YA
+            if(confirm("¿Deseas dar por CERRADO este turno ahora mismo?\n(Si aceptas, desaparecerá de tus pendientes)")) {
+                
+                const { error } = await supabaseClient
+                    .from(this.obtenerTablaActual())
+                    .update({ 
+                        estado_operativo: 'cerrado', 
+                        gestionado_por: this.usuarioActual.cedula,
+                        motivo_cierre: 'gestion_telefonica' 
+                    })
+                    .eq('id', this.turnoActivoId);
+
+                if (error) throw error;
+
+                // Limpiamos la pantalla
+                this.turnoActivoId = null;
+                document.getElementById('chat-activo').classList.add('hidden');
+                document.getElementById('chat-activo').classList.remove('flex');
+                document.getElementById('chat-vacio').classList.remove('hidden');
+                document.getElementById('chat-vacio').classList.add('flex');
+                
+                this.cargarBolsaComun(); 
+                this.controlarAlertasVisuales();
+                
+            } else {
+                // 🌟 LA MAGIA: Si dice que NO lo quiere cerrar, nos aseguramos de asignárselo
+                await supabaseClient
+                    .from(this.obtenerTablaActual())
+                    .update({ 
+                        gestionado_por: this.usuarioActual.cedula
+                    })
+                    .eq('id', this.turnoActivoId)
+                    .is('gestionado_por', null); // Solo lo actualiza si nadie más lo tenía
+
+                // Recargamos el chat para ver la nota y lo mandamos a su bolsa personal
+                this.cargarMensajes(this.turnoActivoId);
+                
+                if (this.vistaAsignacionActiva === 'comun') {
+                    this.cambiarVistaBolsa('mis_turnos');
+                } else {
+                    this.cargarBolsaComun(true); 
+                }
+            }
             
         } catch (err) {
             console.error("Error al registrar la llamada:", err);
@@ -584,6 +645,7 @@ const App = {
 
     abrirChat(turno) {
         // 1. MEMORIA DEL SISTEMA
+        this.turnoActivoDatos = turno;
         this.turnoActivoId = turno.id;
         this.turnoActivoTelefono = turno.telefono || turno.celular; 
         this.turnoActivoTabla = turno.numero_requerimiento ? 'consultas_generales' : 'requerimientos_turnos_sic';
@@ -795,10 +857,24 @@ const App = {
                 </div>`;
         }
         else if (tipo === 'sistema') {
+            // Calculamos la fecha y hora completas (Ej: 14/07/2026, 09:57 a. m.)
+            const fechaHoraCompleta = new Date(horaRaw).toLocaleString('es-CO', { 
+                timeZone: 'America/Bogota', 
+                day: '2-digit', 
+                month: '2-digit', 
+                year: 'numeric', 
+                hour: '2-digit', 
+                minute: '2-digit' 
+            });
+
             div.className = 'flex justify-center relative z-10 my-2';
             div.innerHTML = `
-                <div class="bg-blue-50 text-blue-800 text-[10px] md:text-xs px-4 py-1.5 rounded-full border border-blue-200 text-center font-medium shadow-sm">
-                    <i class="fas fa-info-circle mr-1"></i> ${texto}
+                <div class="bg-blue-50 text-blue-800 text-[10px] md:text-xs px-4 py-2.5 rounded-xl border border-blue-200 text-left font-medium shadow-sm max-w-[85%] md:max-w-md">
+                    <div class="text-[9px] text-blue-600 font-bold uppercase tracking-wide mb-1 border-b border-blue-200 pb-1 flex justify-between items-center gap-4">
+                        <span><i class="fas fa-user-shield mr-1"></i> GESTIÓN: ${autor}</span>
+                    </div>
+                    <p class="mt-1.5 leading-relaxed whitespace-pre-wrap"><i class="fas fa-info-circle mr-1"></i> ${texto}</p>
+                    <span class="text-[9px] text-blue-500 mt-2 block text-right font-bold">${fechaHoraCompleta}</span>
                 </div>`;
         }
 
@@ -960,8 +1036,14 @@ const App = {
                 select.innerHTML = '<option value="">-- Selecciona una respuesta rápida --</option>';
                 data.forEach(resp => {
                     const opt = document.createElement('option');
-                    opt.value = resp.texto;
-                    opt.innerText = resp.texto.length > 55 ? resp.texto.substring(0, 55) + '...' : resp.texto;
+                    // El value sigue siendo el cuerpo para inyectarlo fácil al chat
+                    opt.value = resp.texto; 
+                    // El title es el nativo de HTML que muestra el globito al pasar el mouse
+                    opt.title = resp.texto; 
+                    // El innerText es lo que lee el usuario en la lista desplegable
+                    const tituloBase = resp.titulo || "Sin título";
+                    opt.innerText = tituloBase.length > 55 ? tituloBase.substring(0, 55) + '...' : tituloBase;
+                    
                     select.appendChild(opt);
                 });
             }
@@ -975,10 +1057,16 @@ const App = {
                 }
                 data.forEach(resp => {
                     const div = document.createElement('div');
-                    div.className = 'p-3 flex justify-between items-center text-xs text-slate-700 bg-white hover:bg-slate-50 transition-colors';
+                    div.className = 'p-3 flex justify-between items-center text-xs text-slate-700 bg-white hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-0';
+                    const tituloBase = resp.titulo || "Sin título";
+                    
+                    // Diseño mejorado para mostrar el título en negrita y el cuerpo atenuado abajo
                     div.innerHTML = `
-                        <div class="flex-1 font-medium pr-4 break-words">${resp.texto}</div>
-                        <button onclick="App.eliminarRespuestaRapida('${resp.id}')" class="text-rose-500 p-1.5 hover:bg-rose-50 rounded transition-colors"><i class="fas fa-trash-alt"></i></button>
+                        <div class="flex-1 pr-4 break-words">
+                            <span class="font-bold text-slate-800 block mb-0.5">${tituloBase}</span>
+                            <span class="text-slate-500 line-clamp-1">${resp.texto}</span>
+                        </div>
+                        <button onclick="App.eliminarRespuestaRapida('${resp.id}')" class="text-rose-500 p-2 hover:bg-rose-50 rounded transition-colors"><i class="fas fa-trash-alt"></i></button>
                     `;
                     contenedorAdmin.appendChild(div);
                 });
@@ -989,19 +1077,32 @@ const App = {
     },
 
     async guardarRespuestaRapida() {
-        const input = document.getElementById('nueva-respuesta-rapida');
-        if (!input) return;
-        const texto = input.value.trim();
-        if (!texto) return alert("Escribe un texto válido.");
+        const inputTitulo = document.getElementById('nuevo-titulo-rapida');
+        const inputTexto = document.getElementById('nueva-respuesta-rapida');
+        
+        if (!inputTitulo || !inputTexto) return;
+        
+        const titulo = inputTitulo.value.trim();
+        const texto = inputTexto.value.trim();
+        
+        if (!titulo || !texto) return alert("Por favor, ingresa tanto el Título como el Cuerpo del mensaje.");
         
         try {
-            const { error } = await supabaseClient.from('respuestas_rapidas').insert([{ texto: texto }]);
+            // Guardamos ambos valores en Supabase
+            const { error } = await supabaseClient.from('respuestas_rapidas').insert([{ 
+                titulo: titulo, 
+                texto: texto 
+            }]);
+            
             if (error) throw error;
-            input.value = '';
+            
+            inputTitulo.value = '';
+            inputTexto.value = '';
             this.cargarRespuestasRapidas();
-            alert("✅ Respuesta guardada.");
+            alert("✅ Respuesta guardada con éxito.");
         } catch (err) {
-            alert("❌ Error al guardar.");
+            console.error(err);
+            alert("❌ Error al guardar. Confirma que creaste la columna 'titulo' en Supabase.");
         }
     },
 
@@ -1085,7 +1186,7 @@ const App = {
                 .single();
             if (error) throw error;
             if(data) {
-                const minutosTotales = data.valor;
+                const minutosTotales = parseInt(data.valor) || 0;
                 const horas = Math.floor(minutosTotales / 60);
                 const minutosRestantes = minutosTotales % 60;
                 document.getElementById('config-horas').value = horas;
@@ -1117,7 +1218,107 @@ const App = {
         } finally {
             btn.innerHTML = 'Guardar';
         }
-    }
+    },
+
+    async cargarConfiguracionMensajesAuto() {
+        try {
+            const { data, error } = await supabaseClient
+                .from('configuracion_global')
+                .select('parametro, valor')
+                .in('parametro', ['mensaje_auto_si', 'mensaje_auto_no']);
+                
+            if (error) throw error;
+            
+            // Si encuentra los mensajes, los pinta en los textarea
+            if (data) {
+                data.forEach(item => {
+                    if (item.parametro === 'mensaje_auto_si') document.getElementById('config-msg-si').value = item.valor;
+                    if (item.parametro === 'mensaje_auto_no') document.getElementById('config-msg-no').value = item.valor;
+                });
+            }
+        } catch (err) {
+            console.error("Error cargando mensajes automáticos:", err);
+        }
+    },
+
+    async guardarMensajeAuto(tipo) {
+        const inputId = tipo === 'si' ? 'config-msg-si' : 'config-msg-no';
+        const parametro = tipo === 'si' ? 'mensaje_auto_si' : 'mensaje_auto_no';
+        const valor = document.getElementById(inputId).value.trim();
+        const btn = document.getElementById(`btn-guardar-msg-${tipo}`);
+        
+        if (!valor) return alert("El mensaje no puede estar vacío.");
+
+        const textoOriginal = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+        try {
+            // 1. Verificamos si el parámetro ya existe en la base de datos
+            const { data: existente } = await supabaseClient
+                .from('configuracion_global')
+                .select('id')
+                .eq('parametro', parametro)
+                .maybeSingle();
+            
+            // 2. Si existe lo actualizamos, si no, lo insertamos nuevo
+            if (existente) {
+                const { error } = await supabaseClient.from('configuracion_global').update({ valor }).eq('id', existente.id);
+                if (error) throw error;
+            } else {
+                const { error } = await supabaseClient.from('configuracion_global').insert([{ parametro: parametro, valor: valor }]);
+                if (error) throw error;
+            }
+            
+            alert("✅ Mensaje automático guardado correctamente.");
+        } catch (err) {
+            console.error(err);
+            alert("❌ Error al guardar el mensaje en la base de datos.");
+        } finally {
+            btn.innerHTML = textoOriginal;
+        }
+    },
+
+    mostrarInfoTurno() {
+        if (!this.turnoActivoDatos) return;
+        const turno = this.turnoActivoDatos;
+        const contenedor = document.getElementById('contenido-info-turno');
+        
+        let html = '<ul class="divide-y divide-slate-100">';
+        
+        // Recorremos absolutamente todos los datos que traiga la fila de la base de datos
+        for (const [llave, valor] of Object.entries(turno)) {
+            // Solo mostramos los campos que tengan información (ignoramos nulos o vacíos)
+            if (valor !== null && valor !== '') {
+                // Formateamos el nombre de la columna: quitamos guiones bajos y ponemos mayúsculas
+                const etiquetaFormateada = llave.replace(/_/g, ' ').toUpperCase();
+                
+                html += `
+                    <li class="py-2.5 flex flex-col">
+                        <span class="text-[10px] font-bold text-slate-400 tracking-wide">${etiquetaFormateada}</span>
+                        <span class="text-slate-800 font-medium break-words">${valor}</span>
+                    </li>`;
+            }
+        }
+        
+        html += '</ul>';
+        contenedor.innerHTML = html;
+
+        const modal = document.getElementById('modal-info-turno');
+        const content = document.getElementById('modal-info-content');
+        if(modal && content) {
+            modal.classList.remove('hidden');
+            setTimeout(() => { modal.classList.remove('opacity-0'); content.classList.remove('scale-95'); }, 10);
+        }
+    },
+
+    cerrarInfoTurno() {
+        const modal = document.getElementById('modal-info-turno');
+        const content = document.getElementById('modal-info-content');
+        if(modal && content) {
+            modal.classList.add('opacity-0'); content.classList.add('scale-95');
+            setTimeout(() => { modal.classList.add('hidden'); }, 300);
+        }
+    },
 };
 
 document.addEventListener('DOMContentLoaded', () => { App.init(); });

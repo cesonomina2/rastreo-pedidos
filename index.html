@@ -153,11 +153,10 @@
                                 </div>
                             </div>
 
-                            <div id="franja-detalles-turno" class="bg-white mx-3 my-2 md:mx-6 md:my-4 p-4 rounded-xl shadow-sm border border-slate-200 text-xs md:text-sm shrink-0 relative z-20">
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4">
-                                    <div><span class="text-slate-500 font-medium mr-1">Cliente:</span> <span id="chat-info-cliente" class="font-bold text-slate-700">...</span></div>
-                                    <div><span class="text-slate-500 font-medium mr-1">Horario:</span> <span id="chat-info-horario" class="font-bold text-slate-700">...</span></div>
-                                </div>
+                            <div id="franja-detalles-turno" class="mx-3 my-2 md:mx-6 md:my-4 shrink-0 relative z-20 flex justify-center">
+                                <button onclick="App.mostrarInfoTurno()" class="bg-white border border-slate-200 shadow-sm text-[#0085CA] font-bold text-xs md:text-sm px-5 py-2 rounded-full hover:bg-slate-50 transition-colors flex items-center">
+                                    <i class="fas fa-file-alt mr-2 text-[#8DC63F]"></i> Ver Detalles del Requerimiento
+                                </button>
                             </div>
 
                             <div class="flex-1 overflow-y-auto p-4 md:px-6 md:pb-6 space-y-4 relative">
@@ -221,9 +220,10 @@
                     </div>
                     <div class="p-5 space-y-4">
                         <p class="text-xs text-slate-500">Agrega respuestas predefinidas que los coordinadores podrán usar para agilizar el chat. Usa la variable <span class="font-mono bg-slate-100 px-1 py-0.5 rounded font-bold text-rose-600">{coordinador}</span> para inyectar su nombre de manera dinámica.</p>
-                        <div class="flex gap-2">
-                            <input type="text" id="nueva-respuesta-rapida" placeholder="Ej: Hola, soy {coordinador} de CasaLimpia..." class="flex-1 border border-slate-200 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-[#0085CA]">
-                            <button onclick="App.guardarRespuestaRapida()" class="bg-[#0085CA] text-white px-5 py-2.5 rounded-lg font-bold text-sm hover:bg-[#0070ab] transition-colors shadow">Agregar</button>
+                        <div class="flex flex-col md:flex-row gap-2">
+                            <input type="text" id="nuevo-titulo-rapida" placeholder="Título (Ej: Saludo Inicial)" class="md:w-1/3 border border-slate-200 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-[#0085CA]">
+                            <input type="text" id="nueva-respuesta-rapida" placeholder="Cuerpo del mensaje (Ej: Hola, soy {coordinador}...)" class="flex-1 border border-slate-200 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-[#0085CA]">
+                            <button onclick="App.guardarRespuestaRapida()" class="bg-[#0085CA] text-white px-5 py-2.5 rounded-lg font-bold text-sm hover:bg-[#0070ab] transition-colors shadow flex-shrink-0">Agregar</button>
                         </div>
                         <div class="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-[180px] overflow-y-auto bg-slate-50" id="lista-respuestas-rapidas-container">
                             </div>
@@ -234,6 +234,7 @@
                     <div class="bg-slate-50 p-4 border-b border-slate-200">
                         <h3 class="font-bold text-slate-800 text-sm"><i class="fas fa-stopwatch text-amber-500 mr-2"></i> Auto-cierre de Chats (Inactividad)</h3>
                     </div>
+                
                     <div class="p-5 flex flex-col md:flex-row items-center justify-between gap-4">
                         <p class="text-xs text-slate-500 flex-1">Define el tiempo máximo que un chat puede estar abierto sin recibir mensajes. Si se supera, el sistema lo cerrará automáticamente.</p>
                         <div class="flex items-end gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
@@ -251,6 +252,30 @@
                             </button>
                         </div>
                     </div>
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+                    <div class="bg-slate-50 p-4 border-b border-slate-200">
+                        <h3 class="font-bold text-slate-800 text-sm"><i class="fab fa-whatsapp text-emerald-500 mr-2"></i> Mensajes Automáticos (Aceptación y Rechazo)</h3>
+                    </div>
+                    <div class="p-5 space-y-4">
+                        <p class="text-xs text-slate-500">Estos textos se enviarán automáticamente desde el bot (n8n) cuando el operario presione los botones de confirmación o rechazo.</p>
+                        
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">Mensaje de Confirmación (SÍ)</label>
+                            <div class="flex gap-2">
+                                <textarea id="config-msg-si" rows="2" class="flex-1 border border-slate-200 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500" placeholder="Ej: Muchas gracias por tu confirmación..."></textarea>
+                                <button onclick="App.guardarMensajeAuto('si')" id="btn-guardar-msg-si" class="bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-xs hover:bg-emerald-600 transition shadow self-end mb-1 flex-shrink-0">Guardar</button>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">Mensaje de Ausentismo (NO)</label>
+                            <div class="flex gap-2">
+                                <textarea id="config-msg-no" rows="2" class="flex-1 border border-slate-200 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-rose-500" placeholder="Ej: Ten en cuenta que al rechazar..."></textarea>
+                                <button onclick="App.guardarMensajeAuto('no')" id="btn-guardar-msg-no" class="bg-rose-500 text-white px-4 py-2 rounded-lg font-bold text-xs hover:bg-rose-600 transition shadow self-end mb-1 flex-shrink-0">Guardar</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 </div>
 
                 <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden overflow-x-auto">
@@ -300,6 +325,19 @@
                             <button type="submit" id="btn-guardar-usuario" class="flex-1 bg-gradient-casalimpia text-white font-bold py-2.5 rounded-lg shadow-md hover:shadow-lg transition-all text-sm">Crear</button>
                         </div>
                     </form>
+                </div>
+            </div>
+            <div id="modal-info-turno" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 opacity-0 transition-opacity duration-300">
+                <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden transform scale-95 transition-transform duration-300" id="modal-info-content">
+                    <div class="bg-gradient-casalimpia p-4 flex justify-between items-center text-white">
+                        <h3 class="font-bold font-outfit text-lg"><i class="fas fa-clipboard-list mr-2"></i>Detalles del Turno</h3>
+                        <button onclick="App.cerrarInfoTurno()" class="text-white hover:text-slate-200 transition-colors"><i class="fas fa-times text-xl"></i></button>
+                    </div>
+                    <div id="contenido-info-turno" class="p-6 space-y-3 max-h-[60vh] overflow-y-auto text-sm">
+                        </div>
+                    <div class="p-4 border-t flex justify-center bg-slate-50">
+                        <button onclick="App.cerrarInfoTurno()" class="bg-slate-200 text-slate-700 font-bold py-2 w-full rounded-lg hover:bg-slate-300 transition-colors">Cerrar Detalles</button>
+                    </div>
                 </div>
             </div>
         </main>
